@@ -32,24 +32,18 @@ class RemoveWaters:
         Distance cutoff for md.compute_neighbors() in nm. If less water
         molecules than n_waters are found in cutoff distance,
         this smaller number of water molecules will be kept in output trajectory.
-    del_ions : bool, default=True
-        Set True if ions should be deleted in output trajectory.
-    ions_list : list or None, default=None
-        List of ion resnames that are to be kept in output trajectory if del_ions
-        is False. If None, an internal list of ion resnames will be used to
-        recognise resnames as ions.
 
     Methods
     -------
     static_search()
-        Removes waters based on distance in the first frame only.
+        Remove waters based on distance in the first frame only.
     dynamic_search()
-        Removes waters based on dynamic distance throughout the trajectory. Water identity is lost.
+        Remove waters based on dynamic distance throughout the trajectory. Water identity is lost.
     dynamic_zero()
-        Does not remove waters. Sets the location of every water molecule further away than cutoff to the origin of the simulation box.
+        Set the location of every water molecule further away than cutoff to the origin of the simulation box.
     '''
 
-    def __init__(self, traj, sel_query, sel='protein', n_waters=100, cutoff=1., del_ions=True, ions_list=None):
+    def __init__(self, traj, sel_query, sel='protein', n_waters=100, cutoff=1.):
         '''See class documentation.'''
         self.traj = traj
 
@@ -63,16 +57,6 @@ class RemoveWaters:
         self.sel_query = sel_query
         self.n_waters = n_waters
         self.cutoff = cutoff
-        self.del_ions = del_ions
-        if not ions_list:
-            self.ions_list = ['NA',
-                              'CL',
-                              'CLA',
-                              'SO4',
-                              'PO4',
-                              'POT']
-        else:
-            self.ions_list = ions_list
 
         self.top = self.traj.top
 
@@ -91,7 +75,7 @@ class RemoveWaters:
         self.ion_ids = np.concatenate([self.top.select(f'resname {ion}') for ion in self.ions_list])
 
     def static_search(self):
-
+        '''Remove waters based on distance in the first frame only.'''
         # search neighbouring water molecules to query within cutoff in first frame
         neighbour_water_ids = md.compute_neighbors(self.traj[0],
                                                    cutoff=self.cutoff,
@@ -150,6 +134,14 @@ class RemoveWaters:
         return self.traj_new_static
 
     def dynamic_search(self, water_type='tip3p'):
+        '''
+        Remove waters based on dynamic distance throughout the trajectory. Water identity is lost.
+
+        Parameters
+        ----------
+        water_type : str
+            Water type (tip3p, tip4p, tip5p or spc).
+        '''
         if water_type == 'tip3p':
             self.water_atoms = 3
         elif water_type == 'tip4p':
@@ -270,6 +262,7 @@ class RemoveWaters:
         return traj_new
 
     def dynamic_zero(self):
+        '''Set the location of every water molecule further away than cutoff to the origin of the simulation box.'''
         # get atom ids for each frame that get closer to query_ids than cutoff
         trj_neighbour_water_ids = md.compute_neighbors(
             self.traj, cutoff=self.cutoff, query_indices=self.query_ids, haystack_indices=self.all_water_ids, periodic=False)
