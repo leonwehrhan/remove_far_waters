@@ -113,7 +113,7 @@ class RemoveWaters:
                                                    cutoff=self.cutoff,
                                                    query_indices=self.query_ids,
                                                    haystack_indices=self.all_water_ids,
-                                                   periodic=False)[0]
+                                                   periodic=True)[0]
 
         neighbour_water_res = self._residue_from_id(neighbour_water_ids)
 
@@ -163,38 +163,38 @@ class RemoveWaters:
 
         return self.traj_new_static
 
-    def dynamic_search(self, water_type='tip3p'):
+    def dynamic_search(self):
         '''Remove waters based on dynamic distance throughout the trajectory. Water identity is lost.'''
-        if water_type == 'tip3p':
-            self.water_atoms = 3
-        elif water_type == 'tip4p':
-            self.water_atoms = 4
-        else:
-            raise ValueError(f'Invalid value for water_type {water_type}. Use "tip3p" or "tip4p".')
-
         # get water molecules that during the trajectory ever get closer to query_ids than cutoff
-        trj_neighbour_water_ids = md.compute_neighbors(
-            self.traj, cutoff=self.cutoff, query_indices=self.query_ids, haystack_indices=self.all_water_ids, periodic=False)
+        trj_neighbour_water_ids = md.compute_neighbors(self.traj,
+                                                       cutoff=self.cutoff,
+                                                       query_indices=self.query_ids,
+                                                       haystack_indices=self.all_water_ids,
+                                                       periodic=True)
         trj_neighbour_water_res = []
         for frame in trj_neighbour_water_ids:
             trj_neighbour_water_res.append(self._residue_from_id(frame))
 
-        neighbour_water_res_flat = np.concatenate(trj_neighbour_water_res)
-        neighbour_water_res_flat = list(set(neighbour_water_res_flat))
-        print(
-            f'There is a total of {len(neighbour_water_res_flat)} unique water molecules that ever get closer than {self.cutoff} nm to the query residue.')
+        neighbour_water_res_unique = np.unique(np.concatenate(trj_neighbour_water_res))
 
-        # restrict n_waters to minimum number of waters within cutoff per frame
-        n_waters_per_frame = [len(frame) for frame in trj_neighbour_water_res]
-        if any([x < self.n_waters for x in n_waters_per_frame]):
-            self.n_waters = min(n_waters_per_frame)
-            print(f'Found a minimum of {self.n_waters} water molecules within {self.cutoff} nm.')
-        else:
+        if self.verbose:
             print(
-                f'Found a minimum of {min(n_waters_per_frame)} water molecules within {self.cutoff} nm. Saving the closest {self.n_waters} water molecules.')
+                f'There is a total of {len(neighbour_water_res_unique)} unique water molecules that ever get closer than {self.cutoff} nm to the query residue.')
+
+        # restrict n_waters to maximum number of waters within cutoff per frame
+        n_waters_per_frame = [len(frame) for frame in trj_neighbour_water_res]
+        if max(n_waters_per_frame) < self.n_waters:
+            self.n_waters = max(n_waters_per_frame)
+
+            if self.verbose:
+                print(
+                    f'Found a minimum of {self.n_waters} water molecules within {self.cutoff} nm.')
+        else:
+            if self.verbose:
+                print(
+                    f'Found a minimum of {min(n_waters_per_frame)} water molecules within {self.cutoff} nm. Saving the closest {self.n_waters} water molecules.')
 
         # calculate distances between water molecules and query_res
-        # QUERY_RES MUST ONLY HAVE ONE ENTRY
         res_pairs = list(itertools.product([r.index for r in self.query_res], [
                          r.index for r in neighbour_water_res_flat]))
         contacts = md.compute_contacts(self.traj, contacts=res_pairs, scheme='closest')
