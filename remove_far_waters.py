@@ -71,9 +71,6 @@ class RemoveWaters:
         self.all_water_ids = [[a.index for a in r.atoms] for r in self.top.residues if r.is_water]
         self.all_water_ids = np.concatenate(self.all_water_ids)
 
-        # get indices for ions
-        self.ion_ids = np.concatenate([self.top.select(f'resname {ion}') for ion in self.ions_list])
-
     def static_search(self):
         '''Remove waters based on distance in the first frame only.'''
         # search neighbouring water molecules to query within cutoff in first frame
