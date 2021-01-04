@@ -2,11 +2,12 @@
 Script for removing all waters of a protein simulation that are not in the proximity of a given residue, e.g. protein residue or ligand.
 '''
 
+import argparse
 import numpy as np
 import mdtraj as md
 import itertools
 import os
-import argparse
+import json
 
 
 water_types = {'tip3p': 3,
@@ -21,17 +22,19 @@ class RemoveWaters:
     ----------
     traj : md.Trajectory
         An mdtraj trajectory. Must contain topology information.
-    sel_query : str
-        Selection string for residue which neighbouring waters are kept.
-        The selection must not contain atoms of more than one residue.
-    sel : str
-        Selection string for extracted subsystem.
+    sel_query : str or list
+        Selection string for atoms which neighbouring waters are kept. Or list
+        of atom ids.
+    sel : str or list
+        Selection string for extracted subsystem. Or list of atom ids.
     n_waters : int, default=100
         Number of waters kept in output trajectory. Can be smaller due to cutoff.
     cutoff : float, default=1.
         Distance cutoff for md.compute_neighbors() in nm. If less water
         molecules than n_waters are found in cutoff distance,
         this smaller number of water molecules will be kept in output trajectory.
+    water_type : str
+        Water type (tip3p, tip4p).
 
     Methods
     -------
@@ -43,29 +46,39 @@ class RemoveWaters:
         Set the location of every water molecule further away than cutoff to the origin of the simulation box.
     '''
 
-    def __init__(self, traj, sel_query, sel='protein', n_waters=100, cutoff=1.):
+    def __init__(self, traj, sel_query, sel='protein', n_waters=100, cutoff=1., water_type='tip3p'):
         '''See class documentation.'''
         self.traj = traj
+        self.top = self.traj.top
 
         self.traj_new_static = None
         self.traj_new_dynamic = None
         self.traj_new_dynamic_zero = None
 
-        self.water_atoms = 3
+        # water atoms from water type
+        with open('water_types.json', 'r') as f:
+            self.water_atoms = json.loads(f.read())[water_type]
+        self.n_water_atoms = len(self.water_atoms)
 
         self.sel = sel
         self.sel_query = sel_query
         self.n_waters = n_waters
         self.cutoff = cutoff
 
-        self.top = self.traj.top
-
         # get indices of sel and sel_query
-        self.sel_ids = self.top.select(self.sel)
-        self.query_ids = self.top.select(self.sel_query)
-        self.query_res = self._residue_from_id(self.query_ids)
-        if len(self.query_res) > 1:
-            raise ValueError('sel_query includes indices of atoms for more than 1 residue.')
+        if isinstance(self.sel, str):
+            self.sel_ids = self.top.select(self.sel)
+        elif isinstance(self.sel, list):
+            self.sel_ids = self.sel
+        else:
+            raise TypeError(f'sel is {type(sel)}. Must be list or str.')
+
+        if isinstance(self.sel_query, str):
+            self.query_ids = self.top.select(self.sel_query)
+        elif isinstance(self.sel_query, list):
+            self.query_ids = self.sel_query
+        else:
+            raise TypeError(f'sel is {type(sel)}. Must be list or str.')
 
         # get water atom indices as list of lists for each water residue
         self.all_water_ids = [[a.index for a in r.atoms] for r in self.top.residues if r.is_water]
