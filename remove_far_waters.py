@@ -27,7 +27,7 @@ class RemoveWaters:
         of atom ids.
     sel : str or list
         Selection string for extracted subsystem. Or list of atom ids.
-    n_waters : int, default=100
+    n_waters : int or None, default=100
         Number of waters kept in output trajectory. Can be smaller due to cutoff.
     cutoff : float, default=1.
         Distance cutoff for md.compute_neighbors() in nm. If less water
@@ -35,6 +35,8 @@ class RemoveWaters:
         this smaller number of water molecules will be kept in output trajectory.
     water_type : str
         Water type (tip3p, tip4p).
+    verbose : bool
+        verbose mode.
 
     Methods
     -------
@@ -46,10 +48,22 @@ class RemoveWaters:
         Set the location of every water molecule further away than cutoff to the origin of the simulation box.
     '''
 
-    def __init__(self, traj, sel_query, sel='protein', n_waters=100, cutoff=1., water_type='tip3p'):
+    def __init__(self,
+                 traj,
+                 sel_query,
+                 sel='protein',
+                 n_waters=100,
+                 cutoff=1.,
+                 water_type='tip3p',
+                 verbose=False):
         '''See class documentation.'''
         self.traj = traj
         self.top = self.traj.top
+
+        self.verbose
+
+        if self.verbose:
+            print(f'Trajectory with {self.traj.n_frames} frames and {self.traj.n_atoms} atoms.')
 
         self.traj_new_static = None
         self.traj_new_dynamic = None
@@ -59,6 +73,10 @@ class RemoveWaters:
         with open('water_types.json', 'r') as f:
             self.water_atoms = json.loads(f.read())[water_type]
         self.n_water_atoms = len(self.water_atoms)
+
+        # either cutoff or n_waters must be given
+        if n_waters is None and cutoff is None:
+            raise ValueError('n_waters and cutoff cannot both be None.')
 
         self.sel = sel
         self.sel_query = sel_query
@@ -80,9 +98,13 @@ class RemoveWaters:
         else:
             raise TypeError(f'sel is {type(sel)}. Must be list or str.')
 
-        # get water atom indices as list of lists for each water residue
+        # water atom indices
+        # np.concatenate broadcasts shape to (n_water_atoms,)
         self.all_water_ids = [[a.index for a in r.atoms] for r in self.top.residues if r.is_water]
         self.all_water_ids = np.concatenate(self.all_water_ids)
+
+        if self.verbose:
+            print(f'{len(self.all_water_ids)} water atoms in trajectory.')
 
     def static_search(self):
         '''Remove waters based on distance in the first frame only.'''
@@ -90,18 +112,20 @@ class RemoveWaters:
         neighbour_water_ids = md.compute_neighbors(self.traj[0],
                                                    cutoff=self.cutoff,
                                                    query_indices=self.query_ids,
-                                                   haystack_indices=self.all_water_ids, periodic=False)[0]
+                                                   haystack_indices=self.all_water_ids,
+                                                   periodic=False)[0]
 
-        neighbour_water_res = [a.residue for a in [self.top.atom(i) for i in neighbour_water_ids]]
-        neighbour_water_res = list(set(neighbour_water_res))
+        neighbour_water_res = self._residue_from_id(neighbour_water_ids)
 
         water_count = len(neighbour_water_res)
-        if water_count <= self.n_waters:
+        if water_count <= self.n_waters or self.n_waters is None:
             # restrict number of waters to the number found within the cutoff distance
             self.n_waters = water_count
-            print(f'found {self.n_waters} water molecules within {self.cutoff} nm.')
 
-            # no distance calculation if n_waters < water_count
+            if self.verbose:
+                print(f'Found {self.n_waters} water molecules within {self.cutoff} nm.')
+
+            # no distance calculation if n_waters <= water_count
             closest_water_res = neighbour_water_res
             closest_water_ids = []
             for r in closest_water_res:
@@ -109,49 +133,38 @@ class RemoveWaters:
                     closest_water_ids.append(a.index)
 
         else:
+            if self.verbose:
+                print(
+                    f'There are more than {self.n_waters} water molecules within cutoff. Saving the closest {self.n_waters}.')
+
             # calculate distances
-            res_pairs = list(itertools.product([r.index for r in self.query_res], [
-                             r.index for r in neighbour_water_res]))
-            contacts = md.compute_contacts(self.traj[0], contacts=res_pairs, scheme='closest')
-            distances = contacts[0][0]
-            mapped_pairs = contacts[1]
-            del contacts
-            del res_pairs
+            distances = np.full(water_count, 99999.)
+            for i_wat, wat in neighbour_water_res:
+                # minimum distance between any water atom and any query atom
+                pairs_itt = itertools.product(self.query_ids, [a.index for a in wat.atoms])
+                pairs = np.array(list(pairs_itt))
+
+                dist = md.compute_distances(traj=self.traj[0],
+                                            atom_pairs=pairs)
+                distances[i_wat] = min(dist[0])
 
             # find n_waters closest waters
-            closest_water_res = []
-            closest_dist_idx = np.argpartition(distances, self.n_waters)
-            closest_dist_idx = closest_dist_idx[:self.n_waters]
-            for i in closest_dist_idx:
-                cpair = mapped_pairs[i]
-                if self.top.residue(cpair[1]).is_water:
-                    closest_water_res.append(self.top.residue(cpair[1]))
-                else:
-                    closest_water_res.append(self.top.residue(cpair[0]))
             closest_water_ids = []
-            for r in closest_water_res:
-                for a in r.atoms:
+            i_wats_closest = np.argpartition(distances, self.n_waters)
+
+            for i_wat in i_wats_closest:
+                for a in neighbour_water_res[i_wat].atoms:
                     closest_water_ids.append(a.index)
 
         # make new trajectory from sel and closest waters
-        if self.del_ions:
-            allowed_ids = np.concatenate([self.sel_ids, closest_water_ids])
-        else:
-            allowed_ids = np.concatenate([self.sel_ids, closest_water_ids, self.ion_ids])
+        allowed_ids = np.concatenate([self.sel_ids, closest_water_ids])
 
         self.traj_new_static = self.traj.atom_slice(allowed_ids)
 
         return self.traj_new_static
 
     def dynamic_search(self, water_type='tip3p'):
-        '''
-        Remove waters based on dynamic distance throughout the trajectory. Water identity is lost.
-
-        Parameters
-        ----------
-        water_type : str
-            Water type (tip3p, tip4p, tip5p or spc).
-        '''
+        '''Remove waters based on dynamic distance throughout the trajectory. Water identity is lost.'''
         if water_type == 'tip3p':
             self.water_atoms = 3
         elif water_type == 'tip4p':
