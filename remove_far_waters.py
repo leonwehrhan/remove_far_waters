@@ -165,6 +165,9 @@ class RemoveWaters:
 
     def dynamic_search(self):
         '''Remove waters based on dynamic distance throughout the trajectory. Water identity is lost.'''
+
+        # TODO: remove neighbor calculation and compute distances to all waters
+
         # get water molecules that during the trajectory ever get closer to query_ids than cutoff
         trj_neighbour_water_ids = md.compute_neighbors(self.traj,
                                                        cutoff=self.cutoff,
@@ -202,23 +205,50 @@ class RemoveWaters:
                     f'Found a maximum of {max(n_waters_per_frame)} water molecules within {self.cutoff} nm. Saving the closest {self.n_waters} water molecules.')
 
         # calculate distances between water molecules and query_res
-        distances_trj = [np.full(len(frame), 9999.) for frame in trj_neighbour_water_res]
+
+        # list of atom ids of unique neighbor water residues
+        unique_atom_ids = []
+        for r in neighbour_water_res_unique:
+            for a in r.atoms:
+                unique_atom_ids.append(a.index)
+
+        # pairs of query_ids with unique atom ids
+        pairs_itt = itertools.product(self.query_ids, unique_atom_ids)
+        pairs = np.array(list(pairs_itt))
+
+        # map water residues to pairs
+        res_of_pairs = np.zeros(len(pairs), dtype=int)
+        for i_pair, pair in enumerate(pairs):
+            a = self.top.atom(pair[1])
+            res_of_pairs[i_pair] = a.residue.index
+
+        # distance calculation
+        # returns distances of shape (n_frames, n_pairs)
+        dist = md.compute_distances(traj=self.traj,
+                                    atom_pairs=pairs)
+
+        # calculate minimum distance of neighbour residues to query
+        # store in list corresponding to trj_neighbour_res
+        trj_neighbour_dist = []
         for i_frame, frame in enumerate(trj_neighbour_water_res):
-            for i_wat, wat in enumerate(frame):
-                pairs_itt = itertools.product(self.query_ids, [a.index for a in wat.atoms])
-                pairs = np.array(list(pairs_itt))
-
-                dist = md.compute_distances(traj=self.traj[i_frame],
-                                            atom_pairs=pairs)
-
-                distances_trj[i_frame][i_wat] = min(dist[0])
+            dist_frame = np.full(len(frame), 9999.)
+            for i_r, r in enumerate(frame):
+                mask = res_of_pairs == r.index
+                dists_res = dist[i_frame][mask]
+                dist_frame[i_r] = min(dists_res)
+            trj_neighbour_dist.append(dist_frame)
 
         # closest water residues to query_ids for each frame in correct order
         closest_water_res = np.zeros((self.n_frames, self.n_waters), dtype=int)
         for i_frame, frame in enumerate(trj_neighbour_water_res):
-            arg_sorted_frame = np.argsort(distances_trj[i_frame])
-            r_sorted_frame = np.array([frame[x].index] for x in arg_sorted_frame[:self.n_waters])
-            closest_water_res[i_frame] = r_sorted_frame
+            resid_frame = np.array([r.index for r in frame])
+            arg_sorted_frame = np.argsort(trj_neighbour_dist[i_frame])
+            r_sorted_frame = resid_frame[arg_sorted_frame]
+
+            # fill up with index 0 if shorter than self.n_waters
+            if len(r_sorted_frame) < self.n_waters:
+
+            closest_water_res[i_frame] = r_sorted_frame[:self.n_waters]
 
         # atom indices of closest water atoms
         closest_water_ids = np.zeros((self.n_frames, self.n_waters * self.n_water_atoms), dtype=int)
