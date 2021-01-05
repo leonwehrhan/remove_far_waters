@@ -1,7 +1,3 @@
-'''
-Script for removing all waters of a protein simulation that are not in the proximity of a given residue, e.g. protein residue or ligand.
-'''
-
 import argparse
 import numpy as np
 import mdtraj as md
@@ -10,14 +6,10 @@ import os
 import json
 
 
-water_types = {'tip3p': 3,
-               'spc': 3,
-               'tip4p': 4,
-               'tip5p': 5}
-
-
 class RemoveWaters:
     '''
+    Remove all waters of a protein simulation that are not in the proximity of a given residue, e.g. protein residue or ligand.
+
     Attributes
     ----------
     traj : md.Trajectory
@@ -59,11 +51,13 @@ class RemoveWaters:
         '''See class documentation.'''
         self.traj = traj
         self.top = self.traj.top
+        self.n_frames = self.traj.n_frames
+        self.n_atoms = self.traj.n_atoms
 
-        self.verbose
+        self.verbose = verbose
 
         if self.verbose:
-            print(f'Trajectory with {self.traj.n_frames} frames and {self.traj.n_atoms} atoms.')
+            print(f'Trajectory with {self.n_frames} frames and {self.n_atoms} atoms.')
 
         self.traj_new_static = None
         self.traj_new_dynamic = None
@@ -105,6 +99,12 @@ class RemoveWaters:
 
         if self.verbose:
             print(f'{len(self.all_water_ids)} water atoms in trajectory.')
+
+        # ensure water molecules are in correct order for water type
+        w_atoms = [self.top.atom(x) for x in self.all_water_ids[:self.n_water_atoms]]
+        if not all([w_atoms[i].name == self.water_atoms[i]['name'] for i in range(self.n_water_atoms)]):
+            raise ValueError(
+                f'Water residues in trj are {[x.name for x in w_atoms]}, must be {[x["name"] for x in self.water_atoms]}')
 
     def static_search(self):
         '''Remove waters based on distance in the first frame only.'''
@@ -171,11 +171,18 @@ class RemoveWaters:
                                                        query_indices=self.query_ids,
                                                        haystack_indices=self.all_water_ids,
                                                        periodic=True)
+
+        # water residue for neighbors in each frame
         trj_neighbour_water_res = []
         for frame in trj_neighbour_water_ids:
             trj_neighbour_water_res.append(self._residue_from_id(frame))
 
-        neighbour_water_res_unique = np.unique(np.concatenate(trj_neighbour_water_res))
+        # make list of unique water residues, stored as md.Residue
+        neighbour_water_res_unique = []
+        neighbour_water_res_flat = np.concatenate(trj_neighbour_water_res)
+        for r in neighbour_water_res_flat:
+            if r not in neighbour_water_res_unique:
+                neighbour_water_res_unique.append(r)
 
         if self.verbose:
             print(
@@ -188,57 +195,39 @@ class RemoveWaters:
 
             if self.verbose:
                 print(
-                    f'Found a minimum of {self.n_waters} water molecules within {self.cutoff} nm.')
+                    f'Found a maximum of {self.n_waters} water molecules within {self.cutoff} nm.')
         else:
             if self.verbose:
                 print(
-                    f'Found a minimum of {min(n_waters_per_frame)} water molecules within {self.cutoff} nm. Saving the closest {self.n_waters} water molecules.')
+                    f'Found a maximum of {max(n_waters_per_frame)} water molecules within {self.cutoff} nm. Saving the closest {self.n_waters} water molecules.')
 
         # calculate distances between water molecules and query_res
-        res_pairs = list(itertools.product([r.index for r in self.query_res], [
-                         r.index for r in neighbour_water_res_flat]))
-        contacts = md.compute_contacts(self.traj, contacts=res_pairs, scheme='closest')
+        distances_trj = [np.full(len(frame), 9999.) for frame in trj_neighbour_water_res]
+        for i_frame, frame in enumerate(trj_neighbour_water_res):
+            for i_wat, wat in enumerate(frame):
+                pairs_itt = itertools.product(self.query_ids, [a.index for a in wat.atoms])
+                pairs = np.array(list(pairs_itt))
 
-        contacts_zipped = []
-        mapped_pairs = contacts[1]
-        for frame in range(self.traj.n_frames):
-            contacts_zipped.append(list(zip(contacts[0][frame], mapped_pairs)))
-        del contacts
+                dist = md.compute_distances(traj=self.traj[i_frame],
+                                            atom_pairs=pairs)
 
-        contacts_sorted = []
-        for frame in contacts_zipped:
-            frame.sort(key=lambda x: x[0])
-            frame_sorted = []
-            for i, j in enumerate(frame):
-                if j[1][0] == self.query_res[0].index:
-                    frame_sorted.append([j[0], j[1][1]])
-                elif j[1][1] == self.query_res[0].index:
-                    frame_sorted.append([j[0], j[1][0]])
-                else:
-                    raise ValueError('Query_res not included in contact pair.')
-            contacts_sorted.append(frame_sorted)
-        contacts_sorted = np.array(contacts_sorted)
-        self.contacts_sorted = contacts_sorted
+                distances_trj[i_frame][i_wat] = min(dist[0])
 
-        closest_water_res = []
-        closest_water_ids = []
-        for frame in range(self.traj.n_frames):
-            res_closest_in_frame = list(contacts_sorted[frame][:, 1].astype(int))
-            res_closest_in_frame = res_closest_in_frame[:self.n_waters]
-            closest_water_res.append(res_closest_in_frame)
+        # closest water residues to query_ids for each frame in correct order
+        closest_water_res = np.zeros((self.n_frames, self.n_waters), dtype=int)
+        for i_frame, frame in enumerate(trj_neighbour_water_res):
+            arg_sorted_frame = np.argsort(distances_trj[i_frame])
+            r_sorted_frame = np.array([frame[x].index] for x in arg_sorted_frame[:self.n_waters])
+            closest_water_res[i_frame] = r_sorted_frame
 
-            id_closest_in_frame = []
-            for ri in res_closest_in_frame:
-                r = self.top.residue(ri)
-                for a in r.atoms:
-                    id_closest_in_frame.append(a.index)
-            closest_water_ids.append(id_closest_in_frame)
-
-        # closest_water_res = self._optimize_closest_water_res(closest_water_res)
-
-        closest_water_res = np.array(closest_water_res)
-        closest_water_ids = np.array(closest_water_ids)
-        self.closest_water_res = closest_water_res
+        # atom indices of closest water atoms
+        closest_water_ids = np.zeros((self.n_frames, self.n_waters * self.n_water_atoms), dtype=int)
+        for i_frame, frame in enumerate(closest_water_res):
+            residues = [self.top.residue(x) for x in frame]
+            a_ids = []
+            for r in residues:
+                [a_ids.append(a.index) for a in r.atoms]
+            closest_water_ids[i_frame] = np.array(a_ids)
 
         # atom slice topology and make new trajectory xyz
         t_sel = self.traj.atom_slice(self.sel_ids)
@@ -247,28 +236,18 @@ class RemoveWaters:
         # add chain with water molecules
         top_new.add_chain()
         for i in range(self.n_waters):
-            top_new.add_residue('HOH', top_new.chain(top_new.n_chains-1), resSeq=i+1)
-        if water_type == 'tip3p':
-            for i in range(self.n_waters):
-                top_new.add_atom('O', md.element.oxygen, residue=top_new.chain(
-                    top_new.n_chains-1).residue(i))
-                top_new.add_atom('H1', md.element.hydrogen,
-                                 residue=top_new.chain(top_new.n_chains-1).residue(i))
-                top_new.add_atom('H2', md.element.hydrogen,
-                                 residue=top_new.chain(top_new.n_chains-1).residue(i))
-        elif water_type == 'tip4p':
-            for i in range(self.n_waters):
-                top_new.add_atom('O', md.element.oxygen, residue=top_new.chain(
-                    top_new.n_chains-1).residue(i))
-                top_new.add_atom('H1', md.element.hydrogen,
-                                 residue=top_new.chain(top_new.n_chains-1).residue(i))
-                top_new.add_atom('H2', md.element.hydrogen,
-                                 residue=top_new.chain(top_new.n_chains-1).residue(i))
-                top_new.add_atom('MW', md.element.virtual,
-                                 residue=top_new.chain(top_new.n_chains-1).residue(i))
+            top_new.add_residue('HOH', top_new.chain(top_new.n_chains - 1), resSeq=i + 1)
+
+        for i in range(self.n_waters):
+            for w_atom in self.water_atoms:
+                top_new.add_atom(w_atom['name'],
+                                 w_atom['element'],
+                                 residue=top_new.chain(top_new.n_chains - 1).residue(i))
+
         # make new xyz matrix
-        xyz_new = np.zeros((t_sel.xyz.shape[0], t_sel.xyz.shape[1] +
-                            self.n_waters*self.water_atoms, t_sel.xyz.shape[2]))
+        xyz_new = np.zeros((t_sel.xyz.shape[0],
+                            t_sel.xyz.shape[1] + self.n_waters * self.n_water_atoms,
+                            t_sel.xyz.shape[2]))
         xyz_new[:t_sel.xyz.shape[0], :t_sel.xyz.shape[1], :t_sel.xyz.shape[2]] = t_sel.xyz
 
         # make new trajectory
@@ -325,35 +304,6 @@ class RemoveWaters:
             if r not in res_list:
                 res_list.append(r)
         return res_list
-
-    def _optimize_closest_water_res(self, closest_water_res):
-        cw_new = []
-        cw_new.append(np.array(closest_water_res[0]).astype('int'))
-        for i in range(1, len(closest_water_res)):
-            prev_frame = np.array(cw_new[i - 1]).astype('int')
-            cur_frame = np.array(closest_water_res[i]).astype('int')
-            cur_new = np.zeros(len(cur_frame))
-
-            mask = np.in1d(cur_frame, prev_frame)
-            mask_invert = np.in1d(cur_frame, prev_frame, invert=True)
-            cur_inprev = cur_frame[mask]
-            cur_notinprev = cur_frame[mask_invert]
-
-            for x in cur_inprev:
-                i = np.where(prev_frame == x)
-                cur_new[i] = prev_frame[i]
-            for x in cur_notinprev:
-                for i, j in enumerate(cur_new):
-                    if j == 0:
-                        cur_new[i] = x
-                        break
-            cur_new = cur_new.astype('int')
-            # if not np.in1d(cur_frame, prev_frame):
-            #    pass
-            cw_new.append(cur_new)
-
-        cw_new = np.array(cw_new)
-        return cw_new
 
     def _complete_to_full_res(self, id_array):
         res_list = self._residue_from_id(id_array)
