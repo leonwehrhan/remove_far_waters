@@ -17,6 +17,8 @@ class RemoveWaters:
     sel_query : str or list
         Selection string for atoms which neighbouring waters are kept. Or list
         of atom ids.
+    trj_name : str or None
+        Name of the trajectory.
     sel : str or list
         Selection string for extracted subsystem. Or list of atom ids.
     n_waters : int or None, default=100
@@ -43,6 +45,7 @@ class RemoveWaters:
     def __init__(self,
                  traj,
                  sel_query,
+                 trj_name='trj',
                  sel='protein',
                  n_waters=100,
                  cutoff=1.,
@@ -54,6 +57,7 @@ class RemoveWaters:
         self.n_frames = self.traj.n_frames
         self.n_atoms = self.traj.n_atoms
 
+        self.trj_name = trj_name
         self.verbose = verbose
 
         if self.verbose:
@@ -166,7 +170,7 @@ class RemoveWaters:
 
         return self.traj_new_static
 
-    def dynamic_search(self):
+    def dynamic_search(self, save_dest=None):
         '''Remove waters based on dynamic distance throughout the trajectory. Water identity is lost.'''
         # pairs of query_ids with all water atom ids
         pairs_itt = itertools.product(self.query_ids, self.all_water_ids)
@@ -190,9 +194,6 @@ class RemoveWaters:
         dist_res = np.array([dist[:, res_of_pairs == rid] for rid in self.all_water_res])
         min_dist_res = np.amin(dist_res, axis=2)
         trj_water_dist = min_dist_res.T
-
-        if self.verbose:
-            print('Minimum distance to water residues calculated.')
 
         # water residues sorted per distance in frame
         # distances corresponding to water residues sorted
@@ -257,6 +258,17 @@ class RemoveWaters:
         # set coordinates of water molecules to closest waters
         for frame in range(self.traj.n_frames):
             traj_new.xyz[frame][len(self.sel_ids):] = self.traj.xyz[frame][closest_water_ids[frame]]
+
+        # save closest water indices to textfile
+        if save_dest:
+            if os.path.isdir(save_dest):
+                fname = os.path.join(save_dest, f'{self.trj_name}_dynamic.txt')
+            else:
+                fname = save_dest
+        else:
+            fname = f'{self.trj_name}_dynamic.txt'
+
+        np.savetxt(fname, closest_water_res, fmt='%i')
 
         self.traj_new_dynamic = traj_new
         return traj_new
