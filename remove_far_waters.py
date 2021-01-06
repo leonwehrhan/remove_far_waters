@@ -299,13 +299,6 @@ class RemoveWaters:
 
         return traj_new
 
-    def save_closest_water_dynamic(self, dest):
-        if os.path.isdir(dest):
-            fname = os.path.join(dest, 'closest_water_dynamic.txt')
-        else:
-            fname = dest
-        np.savetxt(fname, self.closest_water_res, fmt='%i')
-
     def _residue_from_id(self, id_list):
         res_list = []
         for id in id_list:
@@ -328,6 +321,74 @@ class RemoveWaters:
             full_id_array[i] = a.index
 
         return full_id_array
+
+
+def verify(t, t_red, idx_file, errors=True, verbose=False):
+    '''
+    Verify result of dynamic search.
+
+    Parameters
+    ----------
+    t : md.Trajectory
+        The original trajectory with all waters.
+    t_red : md.Trajectory
+        The reduced trajectory with only neighboring waters.
+    idx_file : str
+        Path to closest water index file.
+    errors : bool
+        Raise error when verification fails.
+    verbose : bool
+        Verbose mode.
+    '''
+    # load water residue indices from original trj corresponding to water in reduced trj
+    water_res = np.loadtxt(idx_file, dtype=int)
+
+    # get water atom indices from residues
+    water_ids = []
+    for i_frame, frame in enumerate(water_res):
+        residues = [t.top.residue(x) for x in frame]
+        a_ids = []
+        for r in residues:
+            [a_ids.append(a.index) for a in r.atoms]
+        water_ids.append(a_ids)
+    water_ids = np.array(water_ids, dtype=int)
+
+    # number of water atoms
+    n_water_atoms = water_ids.shape[1]
+
+    # get water atom indices in reduced trj
+    water_ids_red = []
+    for r in t_red.top.residues:
+        if r.is_water:
+            for a in r.atoms:
+                water_ids_red.append(a.index)
+    water_ids_red = np.array(water_ids_red)
+
+    # water number must be same
+    if not len(water_ids_red) == n_water_atoms:
+        raise ValueError(
+            f'Found {len(water_ids_red)} waters in reduced trj, {n_water_atoms} in idx_file.')
+
+    # frame numbers must be same
+    if not t.n_frames == len(water_ids):
+        raise ValueError(f'Trajectory has {t.n_frames} frames, idx_file has {len(water_ids)}.')
+    if not t.n_frames == t_red.n_frames:
+        raise ValueError(
+            f'Trajectory has {t.n_frames} frames, reduced trajectory has {t_red.n_frames}.')
+
+    # verify coordinates
+    for i_frame in range(t.n_frames):
+        coord = t.xyz[i_frame][water_ids[i_frame]]
+        coord_red = t_red.xyz[i_frame][water_ids_red]
+
+        if not (coord == coord_red).all():
+            if errors:
+                raise ValueError(
+                    f'Coordinates of water molecules in frame {i_frame} are not the same.')
+            else:
+                return False
+
+    return True
 
 
 def main():
