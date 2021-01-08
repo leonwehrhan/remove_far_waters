@@ -247,7 +247,7 @@ class RemoveWaters:
         for i in range(self.n_waters):
             for w_atom in self.water_atoms:
                 top_new.add_atom(w_atom['name'],
-                                 w_atom['element'],
+                                 md.element.Element.getBySymbol(w_atom['element']),
                                  residue=top_new.chain(top_new.n_chains - 1).residue(i))
 
         # make new xyz matrix
