@@ -5,6 +5,14 @@ import itertools
 import os
 import json
 
+water_types = {"tip3p": [{"name": "O", "element": "O"},
+                         {"name": "H1", "element": "H"},
+                         {"name": "H2", "element": "H"}],
+               "tip4p": [{"name": "O", "element": "O"},
+                         {"name": "H1", "element": "H"},
+                         {"name": "H2", "element": "H"},
+                         {"name": "MW", "element": "VS"}]}
+
 
 class RemoveWaters:
     '''
@@ -68,8 +76,7 @@ class RemoveWaters:
         self.traj_new_dynamic_zero = None
 
         # water atoms from water type
-        with open('water_types.json', 'r') as f:
-            self.water_atoms = json.loads(f.read())[water_type]
+        self.water_atoms = water_types[water_type]
         self.n_water_atoms = len(self.water_atoms)
 
         # either cutoff or n_waters must be given
