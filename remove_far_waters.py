@@ -195,7 +195,7 @@ class RemoveWaters:
                                     atom_pairs=pairs)
 
         if self.verbose:
-            print('Distance calculation completed.')
+            print(f'Distance calculation completed for {len(pairs)} pairs.')
 
         # calculate minimum distance of neighbour residues to query
         dist_res = np.array([dist[:, res_of_pairs == rid] for rid in self.all_water_res])
@@ -206,6 +206,9 @@ class RemoveWaters:
         # distances corresponding to water residues sorted
         trj_water_res_sorted = np.zeros((self.n_frames, len(self.all_water_res)), dtype=int)
         trj_water_dist_sorted = np.full((self.n_frames, len(self.all_water_res)), 9999.)
+
+        if self.verbose:
+            print(f'Matrices for water residues sorted per distance in frame have shape ({self.n_frames, len(self.all_water_res)}).')
 
         for i_frame, frame in enumerate(trj_water_dist):
             trj_water_dist_sorted[i_frame] = frame[np.argsort(frame)]
@@ -220,8 +223,7 @@ class RemoveWaters:
         # update self.n_waters
         self.n_waters = max(n_wat_cutoff)
         if self.verbose:
-            print(
-                f'Found a maximum of {self.n_waters} water molecules within a cutoff of {self.cutoff} nm.')
+            print(f'Found a maximum of {self.n_waters} water molecules within a cutoff of {self.cutoff} nm.')
 
         # closest self.n_waters water residues to query_ids for each frame in correct order
         closest_water_res = trj_water_res_sorted[:, :self.n_waters]
