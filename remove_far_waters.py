@@ -204,6 +204,7 @@ class RemoveWaters:
 
         # delete original distance calculation to free memory space
         del dist
+        del min_dist_res
 
         # water residues sorted per distance in frame
         # distances corresponding to water residues sorted
