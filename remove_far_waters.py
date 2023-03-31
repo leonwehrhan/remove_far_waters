@@ -404,8 +404,24 @@ def verify(t, t_red, idx_file, errors=True, verbose=False):
 
 
 def main():
-    pass
+    parser = argparse.ArgumentParser()
+    parser.add_argument('t', help='Trajectory file.')
+    parser.add_argument('top', help='Topology file.')
+    parser.add_argument('sel_q', help='Query selection around which the water molecules are located.')
+    parser.add_argument('sel_e', help='Selection of atoms which are kept in the output trajectory, next to the water molecules.')
+    parser.add_argument('c', help='Cutoff in nm.')
+    parser.add_argument('w', help='Water type (tip3p or tip4p).')
+    parser.add_argument('--verbose', help='Verbose mode on.')
 
+    args = parser.parse_args()
+
+    t = md.load(args.t, top=args.top)
+
+    W = rmw.RemoveWaters(t, args.sel_q, 'example', args.sel_e, cutoff=args.c, water_type=args.w)
+    t_new = W.dynamic_search()
+
+    t_new.save('example_reduced_water.xtc')
+    t_new[0].save('example_reduced_water.pdb')
 
 if __name__ == '__main__':
     main()
