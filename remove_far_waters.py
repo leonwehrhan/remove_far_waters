@@ -202,6 +202,9 @@ class RemoveWaters:
         min_dist_res = np.amin(dist_res, axis=2)
         trj_water_dist = min_dist_res.T
 
+        # delete original distance calculation to free memory space
+        del dist
+
         # water residues sorted per distance in frame
         # distances corresponding to water residues sorted
         trj_water_res_sorted = np.zeros((self.n_frames, len(self.all_water_res)), dtype=int)
