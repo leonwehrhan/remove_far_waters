@@ -201,6 +201,7 @@ class RemoveWaters:
         dist_res = np.array([dist[:, res_of_pairs == rid] for rid in self.all_water_res])
         del dist
         trj_water_dist = np.amin(dist_res, axis=2).T
+        del dist_res
 
         # water residues sorted per distance in frame
         # distances corresponding to water residues sorted
