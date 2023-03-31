@@ -272,13 +272,14 @@ class RemoveWaters:
             traj_new.xyz[frame][len(self.sel_ids):] = self.traj.xyz[frame][closest_water_ids[frame]]
 
         # save closest water indices to textfile
+        basename_water_idx = f'{self.trj_name}_water_idx.txt'
         if save_dest:
             if os.path.isdir(save_dest):
-                fname = os.path.join(save_dest, f'{self.trj_name}_dynamic.txt')
+                fname = os.path.join(save_dest, basename_water_idx)
             else:
                 fname = save_dest
         else:
-            fname = f'{self.trj_name}_dynamic.txt'
+            fname = basename_water_idx
 
         np.savetxt(fname, closest_water_res, fmt='%i')
 
