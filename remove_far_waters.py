@@ -199,12 +199,8 @@ class RemoveWaters:
 
         # calculate minimum distance of neighbour residues to query
         dist_res = np.array([dist[:, res_of_pairs == rid] for rid in self.all_water_res])
-        min_dist_res = np.amin(dist_res, axis=2)
-        trj_water_dist = min_dist_res.T
-
-        # delete original distance calculation to free memory space
         del dist
-        del min_dist_res
+        trj_water_dist = np.amin(dist_res, axis=2).T
 
         # water residues sorted per distance in frame
         # distances corresponding to water residues sorted
