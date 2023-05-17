@@ -1,4 +1,7 @@
 # remove_far_waters
+Removes water from molecular trajectories that are far away from specified slection (e.g. inside a binding pocket). This reduced the size of the trajectory file.
+
+The water molecules can be deleted dynamically, which means in every snapshot of the trajectory the far water molecules will be identified and deleted. The remaining water molecules get new indices. The water molecules can also be deleted statically, meaning the deleted water molecules are picked only based on the first snapshot of the trajectory. This is not recommended, but keeps the indices of the water molecules the same.
 
 ## Usage
 
